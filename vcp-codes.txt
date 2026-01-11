@@ -1,0 +1,31 @@
+Modes		14		DC
+----------------------
+Gamer 1		11	    45 (0x2D)
+Gamer 2		11	    46 (0x2E)
+FPS			222	    30 (0x1E)
+RTS			222	    31 (0x1F)
+----------------------
+Reader		222	    1  (0x01)
+HDR Effect	11	    39 (0x27)
+Vivid		5	    49 (0x31)
+
+
+01 01 sRGB
+04 04 5000K
+05 05 6500K
+06 06 7500K
+07 07 8200K
+08 08 9300K
+0A 10 11500K
+0B 11 User1
+
+00    Standard
+01    Productivity
+02    Mixed
+03    Movie
+04    User
+
+
+
+
+

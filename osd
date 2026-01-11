@@ -1,0 +1,159 @@
+#!/usr/bin/env python
+import subprocess
+import argparse
+import sys, termios, tty
+
+bus=2
+
+def getch():
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return ch
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity")
+parser.add_argument("-s", "--show", action="store_true", help="Show current values.")
+parser.add_argument("-b", "--brightness", type=str, help="set or get brightness value.", default="unset", nargs='?')
+parser.add_argument("mode", type=str, help="Display mode", nargs='?')
+args = parser.parse_args()
+
+
+# Modes		14		DC
+# ----------------------
+# Gamer 1		11	    45 (0x2D)
+# Gamer 2		11	    46 (0x2E)
+# FPS			222	    30 (0x1E)
+# RTS			222	    31 (0x1F)
+# ----------------------
+# Reader		222	    1  (0x01)
+# HDR Effect	11	    39 (0x27)
+# Vivid		5	    49 (0x31)
+
+modes = {
+    "Gamer 1":      45,
+    "Gamer 2":      46,
+    "FPS":          30,
+    "RTS":          31,
+
+    "Reader":       1,
+    "HDR Effect":   39,
+    "Vivid":        49,
+}
+flipped_modes = {value: key for key, value in modes.items()}
+
+
+color_presets = {
+    0x01: "sRGB",
+    0x04: "5000K",
+    0x05: "6500K",
+    0x06: "7500K",
+    0x07: "8200K",
+    0x08: "9300K",
+    0x0A: "11500K",
+    0x0B: "User1",
+}
+
+display_modes = {
+    0x00: "Standard",
+    0x01: "Productivity",
+    0x02: "Mixed",
+    0x03: "Movie",
+    0x04: "User",
+}
+
+class DDC:
+    def __init__(self, debug: bool):
+        self.debug = debug
+        self.args = []
+        self.args.append("ddcutil")
+        self.args.append("-b")
+        self.args.append(f"-{bus}")
+        self.args.append("--noverify")
+        #self.args.append("--disable-dynamic-sleep")
+        #self.args.append("--sleep-multiplier=.5")
+        #self.args.append("--sleep-multiplier=.2")
+    
+    def cmd(self, args):
+        if self.debug:
+            print("Running", " ".join(args))
+        for i in range(0, 3):
+            result = subprocess.run(args, capture_output=True, text=True)
+            if result.stderr == "Display not found\n":
+                #print("Display not found. Running ddcutil interrogate...")
+                #subprocess.run(["ddcutil", "interrogate"], capture_output=True, text=True)
+                print("Display not found. Running i2detect")
+                subprocess.run(["i2cdetect", "-y", str(bus)], capture_output=True, text=True)
+                continue
+            return result.stdout + "\n" + result.stderr
+        print("Display not found", file=sys.stderr) # Optionally print an error message to stderr
+        sys.exit(1)
+
+    def setvcp(self, code: int, value: int):
+        args = self.args+["setvcp", hex(code), hex(value)]
+        return self.cmd(args)
+    def getvcp(self, code: int):
+        args = self.args+["getvcp", hex(code), "-t"]
+        return self.cmd(args)
+
+    def getvcp_clean(self, code: int):
+        value = self.getvcp(code).strip().split(" ")[3]
+        if value[0] == "x":
+            value = int("0" + value, base=0)
+        else:
+            value = int(value)
+        return value
+
+
+ddc = DDC(args.verbose)
+mode = None
+
+if args.brightness != "unset":
+    if args.brightness != None:
+        brightness = ddc.setvcp(0x10, int(args.brightness))
+    brightness = ddc.getvcp_clean(0x10)
+    print("Brightness:  ", brightness)
+    exit()
+
+if not args.show:
+    if args.mode:
+        mode = args.mode
+    else:
+        for index, mode in enumerate(modes.keys()):
+            print(f"[{index + 1}]", mode)
+        print("> ", end='')
+        option = int(getch())
+        print(option)
+        mode = list(modes.keys())[option - 1]
+        if args.verbose:
+            print("option: ", option - 1)
+    opcode = modes[mode]
+
+    if args.verbose:
+        print("mode:", mode)
+        print("opcode:", opcode)
+
+    ddc.setvcp(0xDC, opcode)
+
+color_preset = ddc.getvcp_clean(0x14)
+if color_preset in color_presets:
+    color_preset = color_presets[color_preset]
+display_mode = ddc.getvcp_clean(0xDC)
+if display_mode in display_modes:
+    display_mode = display_modes[display_mode]
+brightness = ddc.getvcp_clean(0x10)
+
+print()
+if mode:
+    print("Mode:        ", mode)
+elif display_mode in flipped_modes:
+    print("Mode:        ", flipped_modes[display_mode])
+
+print("Color preset:", color_preset)
+print("Display mode:", display_mode)
+print("Brightness:  ", brightness)
